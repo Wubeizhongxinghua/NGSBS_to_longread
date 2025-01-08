@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH -J lmy07191658_py
+#SBATCH -p cn-long
+#SBATCH -N 1
+#SBATCH -o lmy07191658_py_1736248618164_%j.out
+#SBATCH -e lmy07191658_py_1736248618164_%j.err
+#SBATCH --no-requeue
+#SBATCH -A chengqiyi_g1
+#SBATCH --qos=chengqiyicnl
+#SBATCH -c 5
+pkurun  python3 simulate_3gen.py --bam_file SRR2074689_liver_tumor.clean.bam_DMRed.rmdup_intersect.bam --reference_genome ~/gpfs3/hg38/hg38_only_chromsomes.fa --read_length 500 --num_turns 2 --bed_file dmrs.bed --num_reads 1000 --output_bam test.bam --mode regionbed --cpgtable_file test.txt
