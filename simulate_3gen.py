@@ -559,87 +559,87 @@ def simulate_long_reads_regionbed(cpg_table, read_length, num_turns, output_bam,
                     # i = 0
                     # pbar = tqdm(total = len(cpg_table.index))
                     for line in tqdm(bed):
-                    # ic(i)
-                    chromosome, start, end = line.strip().split()[:3]
-                    start = int(start)
-                    end = int(end)
-                    # Initialize the read
-                    states = {}
-                    prev_state = None
-                    seq_list = []
-                    
-                    # start = start - 100 # -100 from the first CpG site
-                    # Process chunks until stopping condition is met
-                    # while True: # per 1kb processing
-                        # Fetch the reference sequence for the current 1 kb region
-                    is_stopped = 0
-                    chunk_start = int(start)
-                    chunk_end = int(end)
-                    reference_seq = reference_genome.fetch(chromosome, chunk_start, chunk_end).upper()
+                        # ic(i)
+                        chromosome, start, end = line.strip().split()[:3]
+                        start = int(start)
+                        end = int(end)
+                        # Initialize the read
+                        states = {}
+                        prev_state = None
+                        seq_list = []
+                        
+                        # start = start - 100 # -100 from the first CpG site
+                        # Process chunks until stopping condition is met
+                        # while True: # per 1kb processing
+                            # Fetch the reference sequence for the current 1 kb region
+                        is_stopped = 0
+                        chunk_start = int(start)
+                        chunk_end = int(end)
+                        reference_seq = reference_genome.fetch(chromosome, chunk_start, chunk_end).upper()
 
-                        # states, prev_state = inference_methylation_on_sequence(cpg_table, chromosome, chunk_start, chunk_end, reference_seq, states, prev_state, reverse=False)
-                        
-                        # Find all CpG sites in the 1 kb sequence
-                    cpg_positions = [m.start() + chunk_start for m in re.finditer("CG", reference_seq)]
-                    for cpg_pos in tqdm(cpg_positions, leave=False):
-                        # ic((chromosome, cpg_pos, cpg_pos + 1))
-                        if (chromosome, cpg_pos, cpg_pos + 1) not in cpg_table.index:
-                            # Stop if the CpG site is not in the table
-                            break
-                        # Check if the CpG site has any coverage
-                        if cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] == 0:
-                            # Stop if the CpG site has no coverage
-                            break
-                        # Determine the methylation state
-                        if prev_state is None:
-                            # Use the beta value for the first CpG
-                            beta = cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"])
-                            states[cpg_pos] = 1 if random.random() < beta else 0
-                        else:
-                            # Use the transition counts if available
-                            transition_counts = [
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"]
-                            ]
-                            if sum(transition_counts) == 0:
-                                # Stop if no transition data is available
+                            # states, prev_state = inference_methylation_on_sequence(cpg_table, chromosome, chunk_start, chunk_end, reference_seq, states, prev_state, reverse=False)
+                            
+                            # Find all CpG sites in the 1 kb sequence
+                        cpg_positions = [m.start() + chunk_start for m in re.finditer("CG", reference_seq)]
+                        for cpg_pos in tqdm(cpg_positions, leave=False):
+                            # ic((chromosome, cpg_pos, cpg_pos + 1))
+                            if (chromosome, cpg_pos, cpg_pos + 1) not in cpg_table.index:
+                                # Stop if the CpG site is not in the table
                                 break
-                            # Check for stopping conditions
-                            if prev_state == 0 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"] == 0:
+                            # Check if the CpG site has any coverage
+                            if cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] == 0:
+                                # Stop if the CpG site has no coverage
                                 break
-                            if prev_state == 1 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"] == 0:
-                                break
-                            # Use the transition probabilities
-                            if prev_state == 0:
-                                states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"]) else 0
+                            # Determine the methylation state
+                            if prev_state is None:
+                                # Use the beta value for the first CpG
+                                beta = cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"])
+                                states[cpg_pos] = 1 if random.random() < beta else 0
                             else:
-                                states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"]) else 0
-                        prev_state = states[cpg_pos]
-                        
-                    for p in tqdm(range(chunk_start, cpg_pos), leave=False):
-                        if p in states:
-                            # CpG site: use C or T based on methylation state
-                            seq_list.append('C' if states[p] == 1 else 'T')
-                        else:
-                            # Non-CpG site: convert C to T
-                            ref_base = reference_seq[p - chunk_start]
-                            seq_list.append('T' if ref_base.upper() == 'C' else ref_base)
-                    # # Check if stopping condition was met
-                    # if len(cpg_positions) == 0 or (chromosome, cpg_positions[-1], cpg_positions[-1] + 1) not in cpg_table.index:
-                        # break
-                    # Create a read from the merged sequence
-                    seq = ''.join(seq_list)
-                    read = pysam.AlignedSegment()
-                    read.query_name = f"simulated_read_turn_{turn}_pos_{str(start)}"
-                    read.query_sequence = seq
-                    read.reference_id = out_bam.get_tid(chromosome)  # Chromosome index
-                    read.reference_start = start #cpg_table.index[i][1]
-                    read.cigar = [(0, len(seq))]  # Assume no indels
-                    read.mapping_quality = 60
-                    # Add read to BAM file
-                    out_bam.write(read)
+                                # Use the transition counts if available
+                                transition_counts = [
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"]
+                                ]
+                                if sum(transition_counts) == 0:
+                                    # Stop if no transition data is available
+                                    break
+                                # Check for stopping conditions
+                                if prev_state == 0 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"] == 0:
+                                    break
+                                if prev_state == 1 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"] == 0:
+                                    break
+                                # Use the transition probabilities
+                                if prev_state == 0:
+                                    states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0->1"]) else 0
+                                else:
+                                    states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1->1"]) else 0
+                            prev_state = states[cpg_pos]
+                            
+                        for p in tqdm(range(chunk_start, cpg_pos), leave=False):
+                            if p in states:
+                                # CpG site: use C or T based on methylation state
+                                seq_list.append('C' if states[p] == 1 else 'T')
+                            else:
+                                # Non-CpG site: convert C to T
+                                ref_base = reference_seq[p - chunk_start]
+                                seq_list.append('T' if ref_base.upper() == 'C' else ref_base)
+                        # # Check if stopping condition was met
+                        # if len(cpg_positions) == 0 or (chromosome, cpg_positions[-1], cpg_positions[-1] + 1) not in cpg_table.index:
+                            # break
+                        # Create a read from the merged sequence
+                        seq = ''.join(seq_list)
+                        read = pysam.AlignedSegment()
+                        read.query_name = f"simulated_read_turn_{turn}_pos_{str(start)}"
+                        read.query_sequence = seq
+                        read.reference_id = out_bam.get_tid(chromosome)  # Chromosome index
+                        read.reference_start = start #cpg_table.index[i][1]
+                        read.cigar = [(0, len(seq))]  # Assume no indels
+                        read.mapping_quality = 60
+                        # Add read to BAM file
+                        out_bam.write(read)
 
 
 def simulate_long_reads_regionbed_rev(cpg_table, read_length, num_turns, output_bam, input_bam, reference_genome, bed_file):
@@ -654,88 +654,88 @@ def simulate_long_reads_regionbed_rev(cpg_table, read_length, num_turns, output_
                 with open(bed_file, 'r') as bed:
                     # Start from the first CpG site in the table
                     for line in tqdm(bed):
-                    chromosome, start, end = line.strip().split()[:3]
-                    # Initialize the read
-                    start = int(start)
-                    end = int(end)
-                    states = {}
-                    prev_state = None
-                    seq_list = []
-                    # Fetch the reference sequence for the current 1 kb region
-                    chunk_start = int(start)
-                    chunk_end = int(end)
-                    # ic(chunk_start)
-                    # ic(chunk_end)
-                    reference_seq = reference_genome.fetch(chromosome, chunk_start, chunk_end).upper()
-                    # states, prev_state = inference_methylation_on_sequence(cpg_table, chromosome, chunk_start, chunk_end, reference_seq, states, prev_state, reverse=False)
-                    
-                    # Find all CpG sites in the 1 kb sequence
-                    cpg_positions = [m.start() + chunk_start for m in re.finditer("CG", reference_seq)]
-                    cpg_positions.reverse()
-                    # ic(cpg_positions)
-                    for cpg_pos in tqdm(cpg_positions, leave=False):
-                        # ic(cpg_pos)
-                        # ic((chromosome, cpg_pos, cpg_pos + 1))
-                        if (chromosome, cpg_pos, cpg_pos + 1) not in cpg_table.index:
-                            # Stop if the CpG site is not in the table
-                            break
-                        # Check if the CpG site has any coverage
-                        if cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] == 0:
-                            # Stop if the CpG site has no coverage
-                            break
-                        # Determine the methylation state
-                        if prev_state is None:
-                            # Use the beta value for the first CpG
-                            beta = cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"])
-                            states[cpg_pos] = 1 if random.random() < beta else 0
-                        else:
-                            # Use the transition counts if available
-                            transition_counts = [
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"],
-                                cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"]
-                            ]
-                            if sum(transition_counts) == 0:
-                                # Stop if no transition data is available
+                        chromosome, start, end = line.strip().split()[:3]
+                        # Initialize the read
+                        start = int(start)
+                        end = int(end)
+                        states = {}
+                        prev_state = None
+                        seq_list = []
+                        # Fetch the reference sequence for the current 1 kb region
+                        chunk_start = int(start)
+                        chunk_end = int(end)
+                        # ic(chunk_start)
+                        # ic(chunk_end)
+                        reference_seq = reference_genome.fetch(chromosome, chunk_start, chunk_end).upper()
+                        # states, prev_state = inference_methylation_on_sequence(cpg_table, chromosome, chunk_start, chunk_end, reference_seq, states, prev_state, reverse=False)
+                        
+                        # Find all CpG sites in the 1 kb sequence
+                        cpg_positions = [m.start() + chunk_start for m in re.finditer("CG", reference_seq)]
+                        cpg_positions.reverse()
+                        # ic(cpg_positions)
+                        for cpg_pos in tqdm(cpg_positions, leave=False):
+                            # ic(cpg_pos)
+                            # ic((chromosome, cpg_pos, cpg_pos + 1))
+                            if (chromosome, cpg_pos, cpg_pos + 1) not in cpg_table.index:
+                                # Stop if the CpG site is not in the table
                                 break
-                            # Check for stopping conditions
-                            if prev_state == 0 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"] == 0:
+                            # Check if the CpG site has any coverage
+                            if cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] == 0:
+                                # Stop if the CpG site has no coverage
                                 break
-                            if prev_state == 1 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"] == 0:
-                                break
-                            # Use the transition probabilities
-                            if prev_state == 0:
-                                states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"]) else 0
+                            # Determine the methylation state
+                            if prev_state is None:
+                                # Use the beta value for the first CpG
+                                beta = cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1"])
+                                states[cpg_pos] = 1 if random.random() < beta else 0
                             else:
-                                states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"]) else 0
-                        prev_state = states[cpg_pos]
-                    # Generate the sequence for the current chunk
-                    if cpg_pos == cpg_positions[0]:
-                        continue
+                                # Use the transition counts if available
+                                transition_counts = [
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"],
+                                    cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"]
+                                ]
+                                if sum(transition_counts) == 0:
+                                    # Stop if no transition data is available
+                                    break
+                                # Check for stopping conditions
+                                if prev_state == 0 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"] == 0:
+                                    break
+                                if prev_state == 1 and cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"] == 0:
+                                    break
+                                # Use the transition probabilities
+                                if prev_state == 0:
+                                    states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-0"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-0"]) else 0
+                                else:
+                                    states[cpg_pos] = 1 if random.random() < cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"] / (cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "0<-1"] + cpg_table.loc[(chromosome, cpg_pos, cpg_pos + 1), "1<-1"]) else 0
+                            prev_state = states[cpg_pos]
+                        # Generate the sequence for the current chunk
+                        if cpg_pos == cpg_positions[0]:
+                            continue
 
-                    for p in tqdm(range(cpg_pos+1, chunk_end), leave=False):
-                        if p in states:
-                            # CpG site: use C or T based on methylation state
-                            seq_list.append('C' if states[p] == 1 else 'T')
-                        else:
-                            # Non-CpG site: convert C to T
-                            ref_base = reference_seq[p - chunk_start]
-                            seq_list.append('T' if ref_base.upper() == 'C' else ref_base)
-                    # # Check if stopping condition was met
-                    # if len(cpg_positions) == 0 or (chromosome, cpg_positions[-1], cpg_positions[-1] + 1) not in cpg_table.index:
-                        # break
-                    # Create a read from the merged sequence
-                    seq = ''.join(seq_list)
-                    read = pysam.AlignedSegment()
-                    read.query_name = f"simulated_read_turn_{turn}_pos_{cpg_pos+1}_rev"
-                    read.query_sequence = seq
-                    read.reference_id = out_bam.get_tid(chromosome)  # Chromosome index
-                    read.reference_start = cpg_pos+1
-                    read.cigar = [(0, len(seq))]  # Assume no indels
-                    read.mapping_quality = 60
-                    # Add read to BAM file
-                    out_bam.write(read)
+                        for p in tqdm(range(cpg_pos+1, chunk_end), leave=False):
+                            if p in states:
+                                # CpG site: use C or T based on methylation state
+                                seq_list.append('C' if states[p] == 1 else 'T')
+                            else:
+                                # Non-CpG site: convert C to T
+                                ref_base = reference_seq[p - chunk_start]
+                                seq_list.append('T' if ref_base.upper() == 'C' else ref_base)
+                        # # Check if stopping condition was met
+                        # if len(cpg_positions) == 0 or (chromosome, cpg_positions[-1], cpg_positions[-1] + 1) not in cpg_table.index:
+                            # break
+                        # Create a read from the merged sequence
+                        seq = ''.join(seq_list)
+                        read = pysam.AlignedSegment()
+                        read.query_name = f"simulated_read_turn_{turn}_pos_{cpg_pos+1}_rev"
+                        read.query_sequence = seq
+                        read.reference_id = out_bam.get_tid(chromosome)  # Chromosome index
+                        read.reference_start = cpg_pos+1
+                        read.cigar = [(0, len(seq))]  # Assume no indels
+                        read.mapping_quality = 60
+                        # Add read to BAM file
+                        out_bam.write(read)
 
 
 def postprocess(output_bam, mode):
