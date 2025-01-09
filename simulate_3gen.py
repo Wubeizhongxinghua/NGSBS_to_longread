@@ -553,12 +553,12 @@ def simulate_long_reads_regionbed(cpg_table, read_length, num_turns, output_bam,
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         header = in_bam.header
         with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam:
-            bed = open(bed_file, 'r')
             for turn in tqdm(range(num_turns)):
-                # Start from the first CpG site in the table
-                # i = 0
-                # pbar = tqdm(total = len(cpg_table.index))
-                for line in tqdm(bed):
+                with open(bed_file, 'r') as bed:
+                    # Start from the first CpG site in the table
+                    # i = 0
+                    # pbar = tqdm(total = len(cpg_table.index))
+                    for line in tqdm(bed):
                     # ic(i)
                     chromosome, start, end = line.strip().split()[:3]
                     start = int(start)
@@ -650,10 +650,10 @@ def simulate_long_reads_regionbed_rev(cpg_table, read_length, num_turns, output_
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         header = in_bam.header
         with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam:
-            bed = open(bed_file, 'r')
             for turn in tqdm(range(num_turns)):
-                # Start from the first CpG site in the table
-                for line in tqdm(bed):
+                with open(bed_file, 'r') as bed:
+                    # Start from the first CpG site in the table
+                    for line in tqdm(bed):
                     chromosome, start, end = line.strip().split()[:3]
                     # Initialize the read
                     start = int(start)
