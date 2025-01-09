@@ -97,10 +97,10 @@ def build_cpg_table(bam_file, reference_genome):
     """
     Build a table for CpG sites with transition counts and methylation counts using pandas.
     """
-    # Initialize the table as a pandas DataFrame
-    cpg_table = pd.DataFrame(columns=[
-        "chromosome", "start", "end", "0->0", "0->1", "1->0", "1->1", "0<-0", "0<-1", "1<-0", "1<-1", "0", "1"
-    ]).set_index(["chromosome", "start", "end"])
+    # Use a dictionary for intermediate storage
+    cpg_data = defaultdict(lambda: {"0->0": 0, "0->1": 0, "1->0": 0, "1->1": 0,
+                                    "0<-0": 0, "0<-1": 0, "1<-0": 0, "1<-1": 0,
+                                    "0": 0, "1": 0})
 
     with pysam.AlignmentFile(bam_file, "rb") as bam:
         for read in tqdm(bam):
@@ -110,40 +110,38 @@ def build_cpg_table(bam_file, reference_genome):
             chromosome = read.reference_name
             start = read.reference_start
             end = read.reference_end
-            reference_seq = reference_genome.fetch(chromosome, start, end+1) # an extra base in case if C|G
+            reference_seq = reference_genome.fetch(chromosome, start, end + 1)  # an extra base in case of C|G
             states = extract_cpg_states(read, reference_seq, start)
             sorted_positions = sorted(states.keys())
-            # Update the table
-            for i in range(0, len(sorted_positions)):
-                if i != 0: # first do not have previous one
-                    prev_pos = sorted_positions[i - 1]
-                    prev_state = states[prev_pos]
-                if i != len(sorted_positions)-1: # last do not have next one
-                    next_pos = sorted_positions[i + 1]
-                    next_state = states[next_pos]
 
+            # Update the dictionary
+            for i in range(len(sorted_positions)):
                 curr_pos = sorted_positions[i]
                 curr_state = states[curr_pos]
-                # Update transition counts
-                if i != 0:
+
+                # Transition counts
+                if i > 0:  # Has a previous position
+                    prev_pos = sorted_positions[i - 1]
+                    prev_state = states[prev_pos]
                     transition_key_prev = f"{prev_state}->{curr_state}"
-                if i != len(sorted_positions)-1:
+                    cpg_data[(chromosome, curr_pos, curr_pos + 1)][transition_key_prev] += 1
+
+                if i < len(sorted_positions) - 1:  # Has a next position
+                    next_pos = sorted_positions[i + 1]
+                    next_state = states[next_pos]
                     transition_key_next = f"{curr_state}<-{next_state}"
-                
-                if (chromosome, curr_pos, curr_pos + 1) not in cpg_table.index: # for first record
-                    cpg_table.loc[(chromosome, curr_pos, curr_pos + 1)] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    cpg_data[(chromosome, curr_pos, curr_pos + 1)][transition_key_next] += 1
 
-                if i != 0:
-                    cpg_table.at[(chromosome, curr_pos, curr_pos + 1), transition_key_prev] += 1
-                if i != len(sorted_positions)-1:
-                    cpg_table.at[(chromosome, curr_pos, curr_pos + 1), transition_key_next] += 1
-            # Update methylation counts
-            for pos, state in states.items():
-                if (chromosome, pos, pos + 1) not in cpg_table.index:
-                    cpg_table.loc[(chromosome, pos, pos + 1)] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                cpg_table.at[(chromosome, pos, pos + 1), str(state)] += 1
+                # Methylation counts
+                cpg_data[(chromosome, curr_pos, curr_pos + 1)][str(curr_state)] += 1
 
-    return cpg_table.sort_index(level=['chromosome', 'start'])
+    # Convert the dictionary to a DataFrame
+    cpg_table = pd.DataFrame.from_dict(cpg_data, orient="index").reset_index()
+    cpg_table.rename(columns={"level_0": "chromosome", "level_1": "start", "level_2": "end"}, inplace=True)
+    cpg_table.set_index(["chromosome", "start", "end"], inplace=True)
+    
+    return cpg_table.sort_index()
+
 
 # Function to simulate long reads in random mode
 def simulate_long_reads_random(cpg_table, read_length, num_reads, output_bam, input_bam, reference_genome):
@@ -554,7 +552,8 @@ def simulate_long_reads_regionbed(cpg_table, read_length, num_turns, output_bam,
     # Initialize BAM file for writing with the same header as the input BAM file
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         header = in_bam.header
-        with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam, open(bed_file, 'r') as bed:
+        with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam:
+            bed = open(bed_file, 'r')
             for turn in tqdm(range(num_turns)):
                 # Start from the first CpG site in the table
                 # i = 0
@@ -650,7 +649,8 @@ def simulate_long_reads_regionbed_rev(cpg_table, read_length, num_turns, output_
     # Initialize BAM file for writing with the same header as the input BAM file
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         header = in_bam.header
-        with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam, open(bed_file, 'r') as bed:
+        with pysam.AlignmentFile(output_bam, "wb", header=header) as out_bam:
+            bed = open(bed_file, 'r')
             for turn in tqdm(range(num_turns)):
                 # Start from the first CpG site in the table
                 for line in tqdm(bed):
