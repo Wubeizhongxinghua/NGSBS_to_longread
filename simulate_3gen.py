@@ -592,7 +592,7 @@ def process_bed_chunk(args):
                         end = int(end)
                         # Initialize the read
                         seq_list = []
-                        reference_seq = reference_genome.fetch(chromosome, start, end).upper()
+                        reference_seq = reference_genome.fetch(chromosome, start, end + 1).upper()
                         cpg_positions = [m.start() + start for m in re.finditer("CG", reference_seq)]
                         states = {}
                         prev_state = None
@@ -675,7 +675,7 @@ def process_bed_chunk_rev(args):
                         start = int(start)
                         end = int(end)
                         seq_list = []
-                        reference_seq = reference_genome.fetch(chromosome, start, end).upper()
+                        reference_seq = reference_genome.fetch(chromosome, start, end + 1).upper()
                         cpg_positions = [m.start() + start for m in re.finditer("CG", reference_seq)]
                         cpg_positions.reverse()
                         states = {}
