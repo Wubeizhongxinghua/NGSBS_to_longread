@@ -33,6 +33,7 @@ import re
 from icecream import ic
 import os
 import subprocess
+from multiprocessing import Pool, cpu_count
 
 # Function to reverse complement a DNA sequence
 def reverse_complement(seq):
@@ -92,56 +93,83 @@ def extract_cpg_states(read, reference_seq, read_start):
 
     return states
 
-# Function to build the CpG transition and methylation table
-def build_cpg_table(bam_file, reference_genome):
-    """
-    Build a table for CpG sites with transition counts and methylation counts using pandas.
-    """
-    # Use a dictionary for intermediate storage
-    cpg_data = defaultdict(lambda: {"0->0": 0, "0->1": 0, "1->0": 0, "1->1": 0,
-                                    "0<-0": 0, "0<-1": 0, "1<-0": 0, "1<-1": 0,
-                                    "0": 0, "1": 0})
+# Global default dictionary initialization function
+def cpg_data_initializer():
+    return {"0->0": 0, "0->1": 0, "1->0": 0, "1->1": 0,
+            "0<-0": 0, "0<-1": 0, "1<-0": 0, "1<-1": 0,
+            "0": 0, "1": 0}
+
+# Function to process a single BAM chunk
+def process_bam_chunk(args):
+    bam_file, reference_genome, chromosome, start, end = args
+    reference_genome = pysam.FastaFile(reference_genome)
+    cpg_data = defaultdict(cpg_data_initializer)
 
     with pysam.AlignmentFile(bam_file, "rb") as bam:
-        for read in tqdm(bam):
+        for read in bam.fetch(chromosome, start, end):
             if read.is_unmapped:
                 continue
-            # Fetch the reference sequence for the region of the read
-            chromosome = read.reference_name
-            start = read.reference_start
-            end = read.reference_end
-            reference_seq = reference_genome.fetch(chromosome, start, end + 1)  # an extra base in case of C|G
-            states = extract_cpg_states(read, reference_seq, start)
+            ref_start = read.reference_start
+            ref_end = read.reference_end
+            reference_seq = reference_genome.fetch(chromosome, ref_start, ref_end + 1)  # extra base
+            states = extract_cpg_states(read, reference_seq, ref_start)
             sorted_positions = sorted(states.keys())
 
-            # Update the dictionary
             for i in range(len(sorted_positions)):
                 curr_pos = sorted_positions[i]
                 curr_state = states[curr_pos]
 
-                # Transition counts
-                if i > 0:  # Has a previous position
+                if i > 0:
                     prev_pos = sorted_positions[i - 1]
                     prev_state = states[prev_pos]
                     transition_key_prev = f"{prev_state}->{curr_state}"
                     cpg_data[(chromosome, curr_pos, curr_pos + 1)][transition_key_prev] += 1
 
-                if i < len(sorted_positions) - 1:  # Has a next position
+                if i < len(sorted_positions) - 1:
                     next_pos = sorted_positions[i + 1]
                     next_state = states[next_pos]
                     transition_key_next = f"{curr_state}<-{next_state}"
                     cpg_data[(chromosome, curr_pos, curr_pos + 1)][transition_key_next] += 1
 
-                # Methylation counts
                 cpg_data[(chromosome, curr_pos, curr_pos + 1)][str(curr_state)] += 1
 
-    # Convert the dictionary to a DataFrame
-    cpg_table = pd.DataFrame.from_dict(cpg_data, orient="index").reset_index()
+    return cpg_data
+
+# Function to merge results from workers
+def merge_cpg_data(results):
+    merged_data = defaultdict(cpg_data_initializer)
+    for result in results:
+        for key, value in result.items():
+            for subkey, subvalue in value.items():
+                merged_data[key][subkey] += subvalue
+    return merged_data
+
+# Main function to build CpG table with multiprocessing
+def build_cpg_table(bam_file, reference_genome_path, chunk_size=100_000_000):
+    with pysam.AlignmentFile(bam_file, "rb") as bam:
+        references = bam.references
+        lengths = bam.lengths
+
+    # Generate intervals for processing
+    intervals = [
+        (bam_file, reference_genome_path, chromosome, start, min(start + chunk_size, length))
+        for chromosome, length in zip(references, lengths)
+        for start in range(0, length, chunk_size)
+    ]
+
+    # Use multiprocessing pool to process chunks
+    with Pool(cpu_count()) as pool:
+        results = list(tqdm(pool.map(process_bam_chunk, intervals), total=len(intervals)))
+
+    # Merge results from all workers
+    merged_data = merge_cpg_data(results)
+
+    # Convert to DataFrame
+    cpg_table = pd.DataFrame.from_dict(merged_data, orient="index").reset_index()
     cpg_table.rename(columns={"level_0": "chromosome", "level_1": "start", "level_2": "end"}, inplace=True)
     cpg_table.set_index(["chromosome", "start", "end"], inplace=True)
-    
-    return cpg_table.sort_index()
 
+    return cpg_table.sort_index()
 
 # Function to simulate long reads in random mode
 def simulate_long_reads_random(cpg_table, read_length, num_reads, output_bam, input_bam, reference_genome):
@@ -764,13 +792,15 @@ def postprocess(output_bam, mode):
 @click.option("--output_bam", required=True, help="Output BAM file for simulated long reads.")
 # @click.option("--output_cpgtable", required=True, help="Output tabular recording methylation state transition.")
 def main(bam_file, reference_genome, read_length, num_reads, num_turns, mode, output_bam, cpgtable_file, bed_file, is_only_cpgtable):
+    reference_genome_path = reference_genome # Use path instead of pysam.FastaFile object to allow for parallel processing
+    
     # Load the reference genome
     reference_genome = pysam.FastaFile(reference_genome)
 
     # Step 1: Build the CpG table
     if not os.path.exists(cpgtable_file): 
         print("CpG table does not exist! Building CpG table...")
-        cpg_table = build_cpg_table(bam_file, reference_genome)
+        cpg_table = build_cpg_table(bam_file, reference_genome_path)
         print(cpg_table.head(10))
         cpg_table.reset_index().to_csv(cpgtable_file, index=False, header=True, sep='\t')
     else:
