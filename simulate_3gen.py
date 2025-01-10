@@ -590,6 +590,7 @@ def process_bed_chunk(args):
                         chromosome, start, end = line.strip().split()[:3]
                         start = int(start)
                         end = int(end)
+                        # Initialize the read
                         seq_list = []
                         reference_seq = reference_genome.fetch(chromosome, start, end).upper()
                         cpg_positions = [m.start() + start for m in re.finditer("CG", reference_seq)]
@@ -598,15 +599,21 @@ def process_bed_chunk(args):
                         for cpg_pos in cpg_positions:
                             cpg_index = (chromosome, cpg_pos, cpg_pos + 1)
                             if cpg_index not in cpg_table.index:
+                                # Stop if the CpG site is not in the table
                                 break
+                            # Check if the CpG site has any coverage
                             if cpg_table.loc[cpg_index, "0"] + cpg_table.loc[cpg_index, "1"] == 0:
+                                # Stop if the CpG site has no coverage
                                 break
+                            # Determine the methylation state
                             if prev_state is None:
+                                # Use the beta value for the first CpG
                                 beta = cpg_table.loc[cpg_index, "1"] / (
                                         cpg_table.loc[cpg_index, "0"] +
                                         cpg_table.loc[cpg_index, "1"])
                                 states[cpg_pos] = 1 if random.random() < beta else 0
                             else:
+                                # Use the transition counts if available
                                 transition_counts = [
                                     cpg_table.loc[cpg_index, "0->0"],
                                     cpg_table.loc[cpg_index, "0->1"],
@@ -614,21 +621,26 @@ def process_bed_chunk(args):
                                     cpg_table.loc[cpg_index, "1->1"]
                                 ]
                                 if sum(transition_counts) == 0:
+                                    # Stop if no transition data is available
                                     break
+                                # Check for stopping conditions
                                 if prev_state == 0 and cpg_table.loc[cpg_index, "0->0"] + cpg_table.loc[cpg_index, "0->1"] == 0:
                                     break
                                 if prev_state == 1 and cpg_table.loc[cpg_index, "1->0"] + cpg_table.loc[cpg_index, "1->1"] == 0:
                                     break
+                                # Use the transition probabilities
                                 if prev_state == 0:
                                     states[cpg_pos] = 1 if random.random() < cpg_table.loc[cpg_index, "0->1"] / (cpg_table.loc[cpg_index, "0->0"] + cpg_table.loc[cpg_index, "0->1"]) else 0
                                 else:
                                     states[cpg_pos] = 1 if random.random() < cpg_table.loc[cpg_index, "1->1"] / (cpg_table.loc[cpg_index, "1->0"] + cpg_table.loc[cpg_index, "1->1"]) else 0
                             prev_state = states[cpg_pos]
 
-                        for p in range(start, end):
+                        for p in range(start, cpg_pos):
                             if p in states:
+                                # CpG site: use C or T based on methylation state
                                 seq_list.append('C' if states[p] == 1 else 'T')
                             else:
+                                # Non-CpG site: convert C to T
                                 ref_base = reference_seq[p - start]
                                 seq_list.append('T' if ref_base.upper() == 'C' else ref_base)
 
@@ -637,9 +649,10 @@ def process_bed_chunk(args):
                         read.query_name = f"simulated_read_turn_{turn}_pos_{str(start)}"
                         read.query_sequence = seq
                         read.reference_id = out_bam.get_tid(chromosome)
-                        read.reference_start = start
+                        read.reference_start = start  # Chromosome index
                         read.cigar = [(0, len(seq))]
-                        read.mapping_quality = 60
+                        read.mapping_quality = 60  # Assume no indels
+                        # Add read to BAM file
                         out_bam.write(read)
     except Exception as e:
         print(f"Error processing chunk {chunk_id}: {e}")
@@ -697,8 +710,10 @@ def process_bed_chunk_rev(args):
                                 else:
                                     states[cpg_pos] = 1 if random.random() < cpg_table.loc[cpg_index, "1<-1"] / (cpg_table.loc[cpg_index, "0<-1"] + cpg_table.loc[cpg_index, "1<-1"]) else 0
                             prev_state = states[cpg_pos]
+                        if cpg_pos == cpg_positions[0]:
+                            continue
 
-                        for p in range(start, end):
+                        for p in range(cpg_pos+1, end):
                             if p in states:
                                 seq_list.append('C' if states[p] == 1 else 'T')
                             else:
@@ -707,10 +722,10 @@ def process_bed_chunk_rev(args):
 
                         seq = ''.join(seq_list)
                         read = pysam.AlignedSegment()
-                        read.query_name = f"simulated_read_turn_{turn}_pos_{str(start)}_rev"
+                        read.query_name = f"simulated_read_turn_{turn}_pos_{cpg_pos+1}_rev"
                         read.query_sequence = seq
                         read.reference_id = out_bam.get_tid(chromosome)
-                        read.reference_start = start
+                        read.reference_start = cpg_pos+1
                         read.cigar = [(0, len(seq))]
                         read.mapping_quality = 60
                         out_bam.write(read)
@@ -788,9 +803,7 @@ def postprocess(output_bam, mode):
 @click.option("--output_bam", required=True, help="Output BAM file for simulated long reads.")
 # @click.option("--output_cpgtable", required=True, help="Output tabular recording methylation state transition.")
 def main(bam_file, reference_genome, read_length, num_reads, num_turns, mode, output_bam, cpgtable_file, bed_file, is_only_cpgtable):
-    random.seed(42) # Set random seed for reproducibility
     reference_genome_path = reference_genome # Use path instead of pysam.FastaFile object to allow for parallel processing
-    
     # Load the reference genome
     reference_genome = pysam.FastaFile(reference_genome)
 
@@ -819,8 +832,6 @@ def main(bam_file, reference_genome, read_length, num_reads, num_turns, mode, ou
         elif mode == 'regionbed':
             print("Region bed mode...")
             simulate_long_reads_regionbed(cpg_table, num_turns, output_bam, bam_file, reference_genome_path, bed_file)
-            # simulate_long_reads_regionbed(cpg_table, num_turns, f"fwd_{output_bam}", bam_file, reference_genome_path, bed_file)
-            # simulate_long_reads_regionbed_rev(cpg_table, num_turns, f"rvs_{output_bam}", bam_file, reference_genome_path, bed_file)
             postprocess(output_bam, mode)
     
         print(f"Simulated long reads saved to {output_bam}")
